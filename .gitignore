@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+.DS_Store
+gallery/generated/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+STATUS.md
