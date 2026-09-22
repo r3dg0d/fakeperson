@@ -1,4 +1,4 @@
-"""Adapter for local `text2img` / `llada-image` (LLaDA-Image Turbo) CLI."""
+"""Adapter for local `text2img` (LLaDA-Image Turbo) CLI."""
 
 from __future__ import annotations
 
@@ -13,9 +13,10 @@ class Text2ImgBackend:
     name = "text2img"
 
     def __init__(self) -> None:
-        self.bin = shutil.which("text2img") or shutil.which("llada-image")
+        # Prefer text2img (generation) over llada-image (service control).
+        self.bin = shutil.which("text2img")
         if not self.bin:
-            raise RuntimeError("text2img/llada-image not found on PATH")
+            raise RuntimeError("text2img not found on PATH")
 
     def generate(
         self,
@@ -30,58 +31,40 @@ class Text2ImgBackend:
         path = Path(outfile)
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Best-effort CLI shapes — try common flag styles; document failures clearly.
-        attempts = [
-            [
-                self.bin,
-                "--prompt",
-                prompt,
-                "--negative-prompt",
-                negative_prompt,
-                "--seed",
-                str(seed),
-                "--width",
-                str(width),
-                "--height",
-                str(height),
-                "--output",
-                str(path),
-            ],
-            [
-                self.bin,
-                "-p",
-                prompt,
-                "-n",
-                negative_prompt,
-                "-s",
-                str(seed),
-                "-o",
-                str(path),
-            ],
-            [self.bin, prompt, "--seed", str(seed), "-o", str(path)],
+        # Match zionsec llada-cli text2img flags exactly (see `text2img --help`).
+        cmd = [
+            self.bin,
+            "--prompt",
+            prompt,
+            "--negative-prompt",
+            negative_prompt or "blurry, low detail, deformed, celebrity likeness",
+            "--seed",
+            str(seed),
+            "--width",
+            str(width),
+            "--height",
+            str(height),
+            "--output",
+            str(path.resolve()),
+            "--keep-alive",
+            "600",
+            "--device",
+            "cuda",
         ]
 
-        last_err = None
-        for cmd in attempts:
-            try:
-                proc = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=600,
-                )
-            except subprocess.TimeoutExpired as e:
-                last_err = e
-                continue
-            if proc.returncode == 0 and path.exists():
-                stamp_synthetic(path, prompt=prompt, seed=seed)
-                return str(path)
-            last_err = RuntimeError(
-                f"exit {proc.returncode}: {(proc.stderr or proc.stdout or '')[:500]}"
-            )
-
-        raise RuntimeError(
-            f"text2img backend failed to produce {path}. Last error: {last_err}. "
-            "On machines without CUDA, use --backend stub."
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=900,
         )
+        if proc.returncode != 0 or not path.exists():
+            raise RuntimeError(
+                "text2img backend failed to produce "
+                f"{path}. exit={proc.returncode} stderr={(proc.stderr or '')[:800]} "
+                f"stdout={(proc.stdout or '')[:400]}. "
+                "On machines without CUDA, use --backend stub."
+            )
+        stamp_synthetic(path, prompt=prompt, seed=seed)
+        return str(path)
